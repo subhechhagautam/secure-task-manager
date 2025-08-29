@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="A secure task manager demonstrating cloud DevSecOps practices">
+    <title>🔒 Secure Task Manager</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Secure Task Manager</h1>
+
+        </header>
+
+        <main>
+            <section class="add-task-section">
+                <div class="add-task">
+                    <input type="text" id="taskInput" placeholder="Enter a new task..." maxlength="200"
+                        aria-label="New task title">
+                    <button onclick="addTask()" class="btn-primary">Add Task</button>
+                </div>
+                <div id="errorMessage" class="error-message"></div>
+            </section>
+
+            <section class="tasks-section">
+                <div class="task-stats">
+                    <span id="taskCount">0 tasks</span>
+                    <span id="completedCount">0 completed</span>
+                </div>
+
+                <div id="taskList" class="task-list">
+                    <div class="loading">Loading tasks...</div>
+                </div>
+            </section>
+        </main>
+
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
