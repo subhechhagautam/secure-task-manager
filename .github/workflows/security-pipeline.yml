@@ -136,7 +136,7 @@ jobs:
   security-report:
     name: Generate Security Report
     runs-on: ubuntu-latest
-    needs: [security-analysis, container-security, application-security]
+    needs: [security-analysis, container-security]
     if: always()
     
     steps:
@@ -163,13 +163,7 @@ jobs:
         echo "- Container vulnerability scan completed ✅" >> security-report.md
         echo "" >> security-report.md
         
-        echo "### Application Security (OWASP ZAP)" >> security-report.md
-        if [ -d zap-baseline-report ]; then
-          echo "- Web application security scan completed ✅" >> security-report.md
-        else
-          echo "- Web application security scan failed ❌" >> security-report.md
-        fi
-        echo "" >> security-report.md
+        
         
         echo "### Overall Status" >> security-report.md
         echo "- Pipeline Status: ${{ job.status }}" >> security-report.md
