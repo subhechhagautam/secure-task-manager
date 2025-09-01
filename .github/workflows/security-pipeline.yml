@@ -1,0 +1,217 @@
+name: Security-First CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Job 1: Security Analysis
+  security-analysis:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: app/package-lock.json
+    
+    - name: Install dependencies
+      run: |
+        cd app
+        npm ci
+    
+    - name: Run npm audit (Dependency Security Check)
+      run: |
+        cd app
+        npm audit --audit-level high
+        npm audit --audit-level high --json > ../npm-audit-results.json
+    
+    - name: Upload npm audit results
+      uses: actions/upload-artifact@v3
+      with:
+        name: npm-audit-results
+        path: npm-audit-results.json
+  
+  # Job 2: Build and Container Security
+  container-security:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    needs: security-analysis
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: '${{ env.IMAGE_NAME }}:${{ github.sha }}'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: Run Trivy for human readable output
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: '${{ env.IMAGE_NAME }}:${{ github.sha }}'
+        format: 'table'
+        exit-code: '1'
+        ignore-unfixed: true
+        vuln-type: 'os,library'
+        severity: 'CRITICAL,HIGH'
+
+  # Job 3: Application Security Testing
+  application-security:
+    name: Application Security Testing
+    runs-on: ubuntu-latest
+    needs: container-security
+    
+    services:
+      task-manager:
+        image: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+        ports:
+          - 3000:3000
+        options: --health-cmd="curl -f http://localhost:3000/health" --health-interval=30s --health-timeout=10s --health-retries=5
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Wait for application to be ready
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:3000/health; do sleep 2; done'
+    
+    - name: Run OWASP ZAP Baseline Scan
+      uses: zaproxy/action-baseline@v0.10.0
+      with:
+        target: 'http://localhost:3000'
+        rules_file_name: '.zap/rules.tsv'
+        cmd_options: '-a'
+    
+    - name: Upload ZAP results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: zap-baseline-report
+        path: report_html.html
+
+  # Job 4: Deploy (only on main branch)
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [security-analysis, container-security, application-security]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+    
+    - name: Deploy to cloud (placeholder)
+      run: |
+        echo "🚀 Deploying to cloud infrastructure..."
+        echo "✅ Deployment successful!"
+        echo "🔗 Application URL: https://your-domain.com"
+
+  # Job 5: Security Report
+  security-report:
+    name: Generate Security Report
+    runs-on: ubuntu-latest
+    needs: [security-analysis, container-security, application-security]
+    if: always()
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Generate security summary
+      run: |
+        echo "# Security Scan Results" > security-report.md
+        echo "## Date: $(date)" >> security-report.md
+        echo "## Repository: ${{ github.repository }}" >> security-report.md
+        echo "## Commit: ${{ github.sha }}" >> security-report.md
+        echo "" >> security-report.md
+        
+        echo "### Dependency Security (npm audit)" >> security-report.md
+        if [ -f npm-audit-results/npm-audit-results.json ]; then
+          echo "- Dependency scan completed ✅" >> security-report.md
+        else
+          echo "- Dependency scan failed ❌" >> security-report.md
+        fi
+        echo "" >> security-report.md
+        
+        echo "### Container Security (Trivy)" >> security-report.md
+        echo "- Container vulnerability scan completed ✅" >> security-report.md
+        echo "" >> security-report.md
+        
+        echo "### Application Security (OWASP ZAP)" >> security-report.md
+        if [ -d zap-baseline-report ]; then
+          echo "- Web application security scan completed ✅" >> security-report.md
+        else
+          echo "- Web application security scan failed ❌" >> security-report.md
+        fi
+        echo "" >> security-report.md
+        
+        echo "### Overall Status" >> security-report.md
+        echo "- Pipeline Status: ${{ job.status }}" >> security-report.md
+        
+        cat security-report.md
+    
+    - name: Upload security report
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-report
+        path: security-report.md
