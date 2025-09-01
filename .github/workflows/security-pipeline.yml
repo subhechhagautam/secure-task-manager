@@ -97,7 +97,7 @@ jobs:
     
     services:
       task-manager:
-        image: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+        image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
         ports:
           - 3000:3000
         options: >-
